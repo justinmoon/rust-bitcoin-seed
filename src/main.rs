@@ -1,18 +1,13 @@
-use std::io;
-use std::net::{TcpListener, TcpStream};
+use std::env;
+mod echo;
 
-fn handle_client(stream: TcpStream) {
-    println!("connection established");
-    //let data = stream.read_to_string()?;
-    //println!("received: {}", data);
-}
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    println!("{:?}", args);
 
-fn main() -> io::Result<()> {
-    let listener = TcpListener::bind("127.0.0.1:7777")?;
-
-    // accept connections and process them serially
-    for stream in listener.incoming() {
-        handle_client(stream?);
+    if args[1] == "serve" {
+        echo::serve();
+    } else if args[1] == "client" {
+        echo::client(args[2].as_bytes());
     }
-    Ok(())
 }
