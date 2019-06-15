@@ -5,3 +5,6 @@ authors = ["Justin Moon <mail@justinmoon.com>"]
 edition = "2018"
 
 [dependencies]
+bitcoin = "0.18.0"
+tokio = "0.1.21"
+byteorder = "0.5"
