@@ -1,16 +1,63 @@
-use bitcoin::consensus::encode::{deserialize, serialize};
+use bitcoin::consensus::encode::serialize;
 use bitcoin::network::{
     address::Address,
     message::{NetworkMessage, RawNetworkMessage},
     message_network::VersionMessage,
     stream_reader::StreamReader,
 };
-use byteorder::{ByteOrder, LittleEndian};
 use std::collections::HashMap;
-use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
+use std::io::Write;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use bitcoin::network::constants::Network;
+
+// copied from murmel
+const MAIN_SEEDER: [&str; 5] = [
+    "seed.bitcoin.sipa.be",
+    "dnsseed.bluematt.me",
+    "dnsseed.bitcoin.dashjr.org",
+    "seed.bitcoinstats.com",
+    "seed.btc.petertodd.org",
+];
+const TEST_SEEDER: [&str; 4] = [
+    "testnet-seed.bitcoin.jonasschnelli.ch",
+    "seed.tbtc.petertodd.org",
+    "seed.testnet.bitcoin.sprovoost.nl",
+    "testnet-seed.bluematt.me",
+];
+pub fn dns_seed(network: Network) -> Vec<SocketAddr> {
+    let mut seeds = Vec::new();
+    if network == Network::Bitcoin {
+        println!("reaching out for DNS seed...");
+        for seedhost in MAIN_SEEDER.iter() {
+            if let Ok(lookup) = (*seedhost, 8333).to_socket_addrs() {
+                for host in lookup {
+                    seeds.push(host);
+                }
+            } else {
+                println!("{} did not answer", seedhost);
+            }
+        }
+        println!("received {} DNS seeds", seeds.len());
+    }
+    if network == Network::Testnet {
+        println!("reaching out for DNS seed...");
+        for seedhost in TEST_SEEDER.iter() {
+            if let Ok(lookup) = (*seedhost, 18333).to_socket_addrs() {
+                for host in lookup {
+                    seeds.push(host);
+                }
+            } else {
+                println!("{} did not answer", seedhost);
+            }
+        }
+        println!("received {} DNS seeds", seeds.len());
+    }
+    seeds
+}
+
+// copied from murmel
 pub fn compile_version() -> NetworkMessage {
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -42,47 +89,32 @@ struct Node {
 struct Result {
     node: Node,
     version: NetworkMessage,
-    addrs: NetworkMessage,
+    addr: NetworkMessage,
 }
 
 pub fn crawl() {
-    let mut addrs: Vec<Address> = Vec::new();
-    //let a1 = visit("194.71.109.46:8333".to_string());
-    //for record in a1 {
-    //addrs.push(record.1.clone());
-    //}
-    //println!("Terminated with {} addrs", addrs.len());
-    let a2 = visit("91.106.188.229:8333".to_string());
-    for record in a2 {
-        addrs.push(record.1.clone());
-    }
-    println!("Terminated with {} addrs", addrs.len());
-    println!("starting loop");
-    while true {
-        let next = addrs.pop().unwrap();
-        let ip = next.address;
-        let port = next.port;
-        let peer = format!(
-            "{}.{}.{}.{}:{}",
-            ip[6] / 256,
-            ip[6] % 256,
-            ip[7] / 256,
-            ip[7] % 256,
-            port
-        );
+    let mut addrs: Vec<SocketAddr> = Vec::new();
+    addrs.extend(dns_seed(Network::Bitcoin));
+    loop {
+        let peer = addrs.pop().unwrap();
         let addr = visit(peer);
         for record in addr {
-            addrs.push(record.1.clone());
+            addrs.push(record.1.socket_addr().unwrap());
         }
         println!("Terminated with {} addrs", addrs.len());
     }
 }
 
-fn visit(peer: String) -> std::vec::Vec<(u32, bitcoin::network::address::Address)> {
+fn visit(peer: SocketAddr) -> std::vec::Vec<(u32, bitcoin::network::address::Address)> {
     println!("Connecting to {}", peer);
-    match TcpStream::connect_timeout(&peer.parse().unwrap(), Duration::new(10, 0)) {
+    match TcpStream::connect_timeout(&peer, Duration::new(1, 0)) {
         Ok(mut stream) => {
             println!("Connected");
+
+            // timeout in 30 seconds
+            stream
+                .set_read_timeout(Some(Duration::new(30, 0)))
+                .expect("Couldn't set timeout");
 
             // write version
             let lversion = compile_version();
@@ -91,47 +123,70 @@ fn visit(peer: String) -> std::vec::Vec<(u32, bitcoin::network::address::Address
                     magic: 0xd9b4bef9,
                     payload: lversion,
                 }))
-                .unwrap();
-            println!("Sent message, awaiting reply...");
+                .expect("Couldn't write version");
+            println!("Sent version");
 
-            // read version
-            let mut reader = StreamReader::new(&mut stream, Some(100000));
-            let rversion = reader.next_message().unwrap();
-            println!("{:?}", rversion);
-
-            // read verack
-            let rverack = reader.next_message().unwrap();
-            println!("{:?}", rverack);
-
-            // write verack
-            let lverack = NetworkMessage::Verack;
-            stream.write(&serialize(&RawNetworkMessage {
-                magic: 0xd9b4bef9,
-                payload: lverack,
-            }));
-
-            // request peer's peers
-            let getaddr = NetworkMessage::GetAddr;
-            stream.write(&serialize(&RawNetworkMessage {
-                magic: 0xd9b4bef9,
-                payload: getaddr,
-            }));
-
-            // event loop prints messages as they arrive
-            while true {
+            // handle messages as they arrive
+            loop {
                 let mut reader = StreamReader::new(&mut stream, Some(10000000));
                 match reader.next_message() {
                     Ok(message) => match message.payload {
+                        NetworkMessage::Version(ref rversion) => {
+                            println!("Received version");
+                            let lverack = NetworkMessage::Verack;
+                            stream
+                                .write(&serialize(&RawNetworkMessage {
+                                    magic: 0xd9b4bef9,
+                                    payload: lverack,
+                                }))
+                                .expect("Couldn't write verack");
+                            println!("Sent verack");
+                        }
+                        NetworkMessage::Verack => {
+                            println!("Received verack");
+                            let getaddr = NetworkMessage::GetAddr;
+                            stream
+                                .write(&serialize(&RawNetworkMessage {
+                                    magic: 0xd9b4bef9,
+                                    payload: getaddr,
+                                }))
+                                .expect("Couldn't write getaddr");
+                            println!("Sent getaddr");
+                        }
                         NetworkMessage::Addr(ref addr) => {
                             println!("Received {} addrs", addr.len());
-                            return addr.clone();
+                            if addr.len() > 1 {
+                                return addr.clone();
+                            }
+                        }
+                        NetworkMessage::Ping(ref ping) => {
+                            println!("Received ping");
+                            let pong = NetworkMessage::Pong(*ping);
+                            stream
+                                .write(&serialize(&RawNetworkMessage {
+                                    magic: 0xd9b4bef9,
+                                    payload: pong,
+                                }))
+                                .expect("Couldn't write pong");
+                            println!("Sent pong");
                         }
                         _ => {
                             println!("Received {}", message.command());
                         }
                     },
                     Err(err) => {
-                        println!("Error: {}", err);
+                        println!("Error: {}", err.to_string());
+                        let fatal_errors = vec![
+                            // stream timed out
+                            String::from("Resource temporarily unavailable (os error 11)"),
+                            // peer hung up (?)
+                            String::from("unexpected end of file"),
+                            // peer hung up (?)
+                            String::from("invalid checksum: expected 5df6e0e2, actual 00000000"),
+                        ];
+                        if fatal_errors.contains(&err.to_string()) {
+                            break;
+                        }
                     }
                 }
             }
@@ -143,10 +198,3 @@ fn visit(peer: String) -> std::vec::Vec<(u32, bitcoin::network::address::Address
         }
     }
 }
-
-//pub fn crawl() {
-//let mut nodes: HashMap<IpAddr, Node> = HashMap::new();
-//// channel for version messages
-//// channel for addrs
-//// or 1 channel that can accept structs ...
-//}
