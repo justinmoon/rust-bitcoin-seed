@@ -6,9 +6,10 @@ use bitcoin::network::{
     stream_reader::StreamReader,
 };
 use byteorder::{ByteOrder, LittleEndian};
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn compile_version() -> NetworkMessage {
     let timestamp = SystemTime::now()
@@ -31,58 +32,55 @@ pub fn compile_version() -> NetworkMessage {
     })
 }
 
-pub fn _handshake_by_hand(peer: String) {
-    match TcpStream::connect(peer) {
-        Ok(mut stream) => {
-            println!("Connected");
-
-            let msg = compile_version();
-            let ser = serialize(&RawNetworkMessage {
-                magic: 0xd9b4bef9,
-                payload: msg,
-            });
-
-            stream.write(&ser).unwrap();
-            println!("Sent message, awaiting reply...");
-
-            // read magic
-            let mut magic = vec![0u8; 4];
-            stream.read_exact(&mut magic).unwrap();
-            println!("Magic: {:?}", magic);
-
-            // read command
-            let mut command = vec![0u8; 12];
-            stream.read_exact(&mut command).unwrap();
-            println!("Command: {:?}", command);
-
-            // read length
-            let mut length = vec![0u8; 4];
-            stream.read_exact(&mut length).unwrap();
-            let length_int = LittleEndian::read_u32(&length);
-            println!("Length: {:?}, Int: {}", length, length_int);
-
-            // read checksum
-            let mut checksum = vec![0u8; 4];
-            stream.read_exact(&mut checksum).unwrap();
-            println!("Checksum: {:?}", checksum);
-
-            // read payload
-            let mut payload = vec![0u8; length_int as usize];
-            stream.read_exact(&mut payload).unwrap();
-            println!("Payload: {:?}", payload);
-
-            let ver: Result<VersionMessage, _> = deserialize(&payload);
-            println!("Version: {:?}", ver);
-        }
-        Err(e) => {
-            println!("Failed to connect: {}", e);
-        }
-    }
-    println!("Terminated.");
+struct Node {
+    ip: IpAddr,
+    port: u32,
+    visits_missed: u32,
+    last_missed_visit: u32,
 }
 
-pub fn handshake(peer: String) {
-    match TcpStream::connect(peer) {
+struct Result {
+    node: Node,
+    version: NetworkMessage,
+    addrs: NetworkMessage,
+}
+
+pub fn crawl() {
+    let mut addrs: Vec<Address> = Vec::new();
+    //let a1 = visit("194.71.109.46:8333".to_string());
+    //for record in a1 {
+    //addrs.push(record.1.clone());
+    //}
+    //println!("Terminated with {} addrs", addrs.len());
+    let a2 = visit("91.106.188.229:8333".to_string());
+    for record in a2 {
+        addrs.push(record.1.clone());
+    }
+    println!("Terminated with {} addrs", addrs.len());
+    println!("starting loop");
+    while true {
+        let next = addrs.pop().unwrap();
+        let ip = next.address;
+        let port = next.port;
+        let peer = format!(
+            "{}.{}.{}.{}:{}",
+            ip[6] / 256,
+            ip[6] % 256,
+            ip[7] / 256,
+            ip[7] % 256,
+            port
+        );
+        let addr = visit(peer);
+        for record in addr {
+            addrs.push(record.1.clone());
+        }
+        println!("Terminated with {} addrs", addrs.len());
+    }
+}
+
+fn visit(peer: String) -> std::vec::Vec<(u32, bitcoin::network::address::Address)> {
+    println!("Connecting to {}", peer);
+    match TcpStream::connect_timeout(&peer.parse().unwrap(), Duration::new(10, 0)) {
         Ok(mut stream) => {
             println!("Connected");
 
@@ -123,14 +121,32 @@ pub fn handshake(peer: String) {
             while true {
                 let mut reader = StreamReader::new(&mut stream, Some(10000000));
                 match reader.next_message() {
-                    Ok(message) => println!("Mesage: {:?}", message),
-                    Err(err) => println!("Error: {}", err),
+                    Ok(message) => match message.payload {
+                        NetworkMessage::Addr(ref addr) => {
+                            println!("Received {} addrs", addr.len());
+                            return addr.clone();
+                        }
+                        _ => {
+                            println!("Received {}", message.command());
+                        }
+                    },
+                    Err(err) => {
+                        println!("Error: {}", err);
+                    }
                 }
             }
+            return vec![];
         }
         Err(e) => {
             println!("Failed to connect: {}", e);
+            return vec![];
         }
     }
-    println!("Terminated.");
 }
+
+//pub fn crawl() {
+//let mut nodes: HashMap<IpAddr, Node> = HashMap::new();
+//// channel for version messages
+//// channel for addrs
+//// or 1 channel that can accept structs ...
+//}
