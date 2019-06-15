@@ -79,33 +79,49 @@ pub fn compile_version() -> NetworkMessage {
     })
 }
 
-struct Node {
-    ip: IpAddr,
-    port: u32,
-    visits_missed: u32,
-    last_missed_visit: u32,
-}
+//struct Node {
+//addr: SocketAddr,
+//visits_missed: u32,
+//last_missed_visit: u32,
+//}
 
 struct Result {
-    node: Node,
-    version: NetworkMessage,
-    addr: NetworkMessage,
+    socket_addr: SocketAddr,
+    version_msg: Option<VersionMessage>,
+    addr_msg: Option<Vec<(u32, Address)>>,
 }
 
 pub fn crawl() {
     let mut addrs: Vec<SocketAddr> = Vec::new();
+    //let mut db: HashMap<SocketAddr, Node> = HashMap::new();
     addrs.extend(dns_seed(Network::Bitcoin));
     loop {
         let peer = addrs.pop().unwrap();
-        let addr = visit(peer);
-        for record in addr {
-            addrs.push(record.1.socket_addr().unwrap());
+        let result = visit(peer);
+        match result.version_msg {
+            Some(version) => {
+                println!("version: {:?}", version);
+            }
+            None => println!("version handshake failed"),
+        }
+        match result.addr_msg {
+            Some(addr_msg) => {
+                for addr in addr_msg {
+                    addrs.push(addr.1.socket_addr().unwrap());
+                }
+            }
+            None => println!("no addresses received"),
         }
         println!("Terminated with {} addrs", addrs.len());
     }
 }
 
-fn visit(peer: SocketAddr) -> std::vec::Vec<(u32, bitcoin::network::address::Address)> {
+fn visit(peer: SocketAddr) -> Result {
+    let mut result = Result {
+        socket_addr: peer,
+        version_msg: None,
+        addr_msg: None,
+    };
     println!("Connecting to {}", peer);
     match TcpStream::connect_timeout(&peer, Duration::new(1, 0)) {
         Ok(mut stream) => {
@@ -133,6 +149,7 @@ fn visit(peer: SocketAddr) -> std::vec::Vec<(u32, bitcoin::network::address::Add
                     Ok(message) => match message.payload {
                         NetworkMessage::Version(ref rversion) => {
                             println!("Received version");
+                            result.version_msg = Some(rversion.clone());
                             let lverack = NetworkMessage::Verack;
                             stream
                                 .write(&serialize(&RawNetworkMessage {
@@ -153,12 +170,6 @@ fn visit(peer: SocketAddr) -> std::vec::Vec<(u32, bitcoin::network::address::Add
                                 .expect("Couldn't write getaddr");
                             println!("Sent getaddr");
                         }
-                        NetworkMessage::Addr(ref addr) => {
-                            println!("Received {} addrs", addr.len());
-                            if addr.len() > 1 {
-                                return addr.clone();
-                            }
-                        }
                         NetworkMessage::Ping(ref ping) => {
                             println!("Received ping");
                             let pong = NetworkMessage::Pong(*ping);
@@ -169,6 +180,13 @@ fn visit(peer: SocketAddr) -> std::vec::Vec<(u32, bitcoin::network::address::Add
                                 }))
                                 .expect("Couldn't write pong");
                             println!("Sent pong");
+                        }
+                        NetworkMessage::Addr(ref addr) => {
+                            println!("Received {} addrs", addr.len());
+                            if addr.len() > 1 {
+                                result.addr_msg = Some(addr.clone());
+                                break;
+                            }
                         }
                         _ => {
                             println!("Received {}", message.command());
@@ -190,11 +208,11 @@ fn visit(peer: SocketAddr) -> std::vec::Vec<(u32, bitcoin::network::address::Add
                     }
                 }
             }
-            return vec![];
+            return result;
         }
         Err(e) => {
             println!("Failed to connect: {}", e);
-            return vec![];
+            return result;
         }
     }
 }
