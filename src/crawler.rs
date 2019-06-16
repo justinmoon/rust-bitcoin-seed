@@ -106,23 +106,7 @@ fn next_addrs(db: &HashMap<SocketAddr, Node>, n: usize) -> Vec<SocketAddr> {
     return results;
 }
 
-pub fn crawl() {
-    let mut addrs: Vec<SocketAddr> = Vec::new();
-    let mut db: HashMap<SocketAddr, Node> = HashMap::new();
-    addrs.extend(dns_seed(Network::Bitcoin));
-    let seed_addrs = dns_seed(Network::Bitcoin);
-    for seed_addr in seed_addrs {
-        db.entry(seed_addr).or_insert(Node {
-            socket_addr: seed_addr,
-            visits_missed: 0,
-            next_visit: UNIX_EPOCH,
-        });
-        println!(
-            "inserted {} into db. length is now {}",
-            seed_addr,
-            db.keys().len()
-        );
-    }
+fn worker(db: &mut HashMap<SocketAddr, Node>) {
     loop {
         // TODO: print how many nodes are due for a visit
         let peer = next_addrs(&db, 1)[0]; // HACK
@@ -152,13 +136,38 @@ pub fn crawl() {
         match result.addr_msg {
             Some(addr_msg) => {
                 for addr in addr_msg {
-                    addrs.push(addr.1.socket_addr().unwrap());
+                    let socket_addr = addr.1.socket_addr().unwrap();
+                    let node = db.entry(socket_addr).or_insert(Node {
+                        socket_addr: socket_addr,
+                        visits_missed: 0,
+                        next_visit: UNIX_EPOCH,
+                    });
                 }
             }
             None => println!("no addresses received"),
         }
-        println!("Terminated with {} addrs", addrs.len());
     }
+}
+
+fn bootstrap(db: &mut HashMap<SocketAddr, Node>) {
+    for seed_addr in dns_seed(Network::Bitcoin) {
+        db.entry(seed_addr).or_insert(Node {
+            socket_addr: seed_addr,
+            visits_missed: 0,
+            next_visit: UNIX_EPOCH,
+        });
+        println!(
+            "inserted {} into db. length is now {}",
+            seed_addr,
+            db.keys().len()
+        );
+    }
+}
+
+pub fn crawl() {
+    let mut db: HashMap<SocketAddr, Node> = HashMap::new();
+    bootstrap(&mut db);
+    worker(&mut db);
 }
 
 fn visit(peer: SocketAddr) -> Result {
