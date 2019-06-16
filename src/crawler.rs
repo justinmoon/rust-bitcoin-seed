@@ -79,11 +79,11 @@ pub fn compile_version() -> NetworkMessage {
     })
 }
 
-//struct Node {
-//addr: SocketAddr,
-//visits_missed: u32,
-//last_missed_visit: u32,
-//}
+struct Node {
+    socket_addr: SocketAddr,
+    visits_missed: u32,
+    next_visit: SystemTime,
+}
 
 struct Result {
     socket_addr: SocketAddr,
@@ -91,18 +91,41 @@ struct Result {
     addr_msg: Option<Vec<(u32, Address)>>,
 }
 
+//fn next_addrs(db: <Hashmap<SocketAddr, Node>) -> Vec<SocketAddr> {
+//for (key, value) in db {
+
+//}
+//}
+
 pub fn crawl() {
     let mut addrs: Vec<SocketAddr> = Vec::new();
-    //let mut db: HashMap<SocketAddr, Node> = HashMap::new();
+    let mut db: HashMap<SocketAddr, Node> = HashMap::new();
     addrs.extend(dns_seed(Network::Bitcoin));
     loop {
+        // TODO: print how many nodes are due for a visit
         let peer = addrs.pop().unwrap();
         let result = visit(peer);
+        // initialize entry in db
+        let node = db.entry(result.socket_addr).or_insert(Node {
+            socket_addr: result.socket_addr,
+            visits_missed: 0,
+            next_visit: UNIX_EPOCH,
+        });
         match result.version_msg {
             Some(version) => {
                 println!("version: {:?}", version);
             }
-            None => println!("version handshake failed"),
+            None => {
+                println!("version handshake failed");
+                let next_visit_secs = node.visits_missed.pow(2) * 10 * 60;
+                let next_visit = SystemTime::now() + Duration::new(next_visit_secs as u64, 0);
+                let n = Node {
+                    socket_addr: result.socket_addr,
+                    visits_missed: node.visits_missed + 1,
+                    next_visit,
+                };
+                db.insert(result.socket_addr, n);
+            }
         }
         match result.addr_msg {
             Some(addr_msg) => {
