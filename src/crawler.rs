@@ -91,19 +91,41 @@ struct Result {
     addr_msg: Option<Vec<(u32, Address)>>,
 }
 
-//fn next_addrs(db: <Hashmap<SocketAddr, Node>) -> Vec<SocketAddr> {
-//for (key, value) in db {
-
-//}
-//}
+fn next_addrs(db: &HashMap<SocketAddr, Node>, n: usize) -> Vec<SocketAddr> {
+    let now = SystemTime::now();
+    let mut results: Vec<SocketAddr> = vec![];
+    for (socket_addr, node) in db.into_iter() {
+        if node.next_visit < now {
+            println!("{} due for visit", socket_addr);
+            results.push(*socket_addr);
+        }
+        if results.len() == n {
+            break;
+        }
+    }
+    return results;
+}
 
 pub fn crawl() {
     let mut addrs: Vec<SocketAddr> = Vec::new();
     let mut db: HashMap<SocketAddr, Node> = HashMap::new();
     addrs.extend(dns_seed(Network::Bitcoin));
+    let seed_addrs = dns_seed(Network::Bitcoin);
+    for seed_addr in seed_addrs {
+        db.entry(seed_addr).or_insert(Node {
+            socket_addr: seed_addr,
+            visits_missed: 0,
+            next_visit: UNIX_EPOCH,
+        });
+        println!(
+            "inserted {} into db. length is now {}",
+            seed_addr,
+            db.keys().len()
+        );
+    }
     loop {
         // TODO: print how many nodes are due for a visit
-        let peer = addrs.pop().unwrap();
+        let peer = next_addrs(&db, 1)[0]; // HACK
         let result = visit(peer);
         // initialize entry in db
         let node = db.entry(result.socket_addr).or_insert(Node {
