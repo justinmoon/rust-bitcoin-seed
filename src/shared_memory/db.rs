@@ -22,15 +22,13 @@ pub struct Node {
 }
 
 pub struct NodeDb {
-    nodes: Arc<Mutex<HashMap<SocketAddr, Node>>>,
+    nodes: HashMap<SocketAddr, Node>,
 }
 
 impl NodeDb {
     pub fn new() -> NodeDb {
         let mut nodes: HashMap<SocketAddr, Node> = HashMap::new();
-        NodeDb {
-            nodes: Arc::new(Mutex::new(nodes)),
-        }
+        NodeDb { nodes }
     }
     pub fn report(&self) -> HashMap<NodeState, i32> {
         // HACK can't use NodeState as HashMap key
@@ -42,8 +40,7 @@ impl NodeDb {
         report.insert(NodeState::Uncontacted, 0);
 
         // acquire the db lock and build up the report map
-        let nodes = self.nodes.lock().unwrap();
-        for (_, node) in nodes.iter() {
+        for (_, node) in self.nodes.iter() {
             let mut count = report.entry(node.state.clone()).or_insert(0); // FIXME already initialized ...
             *count += 1; // why?
         }
@@ -51,10 +48,9 @@ impl NodeDb {
     }
     // get next `n` nodes due for a visit
     pub fn next(&self) -> Option<Node> {
-        let nodes = self.nodes.lock().unwrap();
         let now = SystemTime::now();
         let ten_minutes_ago = now - Duration::new(10 * 60, 0);
-        for (_, node) in &mut nodes.iter() {
+        for (_, node) in &mut self.nodes.iter() {
             if node.last_visit < ten_minutes_ago {
                 let mut n = node.clone();
                 n.last_visit = SystemTime::now();
@@ -64,14 +60,12 @@ impl NodeDb {
         None
     }
     // maybe this should be call "update"
-    pub fn insert(&self, node: Node) {
-        let mut nodes = self.nodes.lock().unwrap();
-        nodes.insert(node.addr, node);
+    pub fn insert(&mut self, node: Node) {
+        self.nodes.insert(node.addr, node);
     }
-    pub fn initialize(&self, addr: SocketAddr) {
-        let mut nodes = self.nodes.lock().unwrap();
-        if !nodes.contains_key(&addr) {
-            nodes.insert(
+    pub fn initialize(&mut self, addr: SocketAddr) {
+        if !self.nodes.contains_key(&addr) {
+            self.nodes.insert(
                 addr,
                 Node {
                     addr: addr,
@@ -137,6 +131,6 @@ mod tests {
         };
         db.insert(n2.clone());
         // n2 is due, so is "next"
-        assert_eq!(Some(n2), db.next());
+        assert_eq!(n2.addr, db.next().unwrap().addr);
     }
 }
