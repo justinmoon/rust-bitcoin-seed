@@ -79,13 +79,13 @@ pub fn compile_version() -> NetworkMessage {
     })
 }
 
-struct Node {
+pub struct Node {
     socket_addr: SocketAddr,
     visits_missed: u32,
     next_visit: SystemTime,
 }
 
-struct Result {
+pub struct Result {
     socket_addr: SocketAddr,
     version_msg: Option<VersionMessage>,
     addr_msg: Option<Vec<(u32, Address)>>,

@@ -1,38 +1,38 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use std::clone::Clone;
 use std::cmp::{Eq, PartialEq};
 use std::hash::Hash;
 
 #[derive(Eq, Debug, PartialEq, Clone, Hash)]
-enum NodeState {
+pub enum NodeState {
     Online,
     Offline,
     Uncontacted,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
-struct Node {
-    addr: SocketAddr,
-    state: NodeState,
-    last_visit: SystemTime,
+pub struct Node {
+    pub addr: SocketAddr,
+    pub state: NodeState,
+    pub last_visit: SystemTime,
 }
 
-struct NodeDb {
+pub struct NodeDb {
     nodes: Arc<Mutex<HashMap<SocketAddr, Node>>>,
 }
 
 impl NodeDb {
-    fn new() -> NodeDb {
+    pub fn new() -> NodeDb {
         let mut nodes: HashMap<SocketAddr, Node> = HashMap::new();
         NodeDb {
             nodes: Arc::new(Mutex::new(nodes)),
         }
     }
-    fn report(&self) -> HashMap<NodeState, i32> {
+    pub fn report(&self) -> HashMap<NodeState, i32> {
         // HACK can't use NodeState as HashMap key
         let mut report: HashMap<NodeState, i32> = HashMap::new();
 
@@ -50,20 +50,36 @@ impl NodeDb {
         report
     }
     // get next `n` nodes due for a visit
-    fn next(&self) -> Option<Node> {
+    pub fn next(&self) -> Option<Node> {
         let nodes = self.nodes.lock().unwrap();
         let now = SystemTime::now();
         let ten_minutes_ago = now - Duration::new(10 * 60, 0);
         for (_, node) in &mut nodes.iter() {
             if node.last_visit < ten_minutes_ago {
-                return Some(node.clone());
+                let mut n = node.clone();
+                n.last_visit = SystemTime::now();
+                return Some(n);
             }
         }
         None
     }
-    fn insert(&self, node: Node) {
+    // maybe this should be call "update"
+    pub fn insert(&self, node: Node) {
         let mut nodes = self.nodes.lock().unwrap();
         nodes.insert(node.addr, node);
+    }
+    pub fn initialize(&self, addr: SocketAddr) {
+        let mut nodes = self.nodes.lock().unwrap();
+        if !nodes.contains_key(&addr) {
+            nodes.insert(
+                addr,
+                Node {
+                    addr: addr,
+                    state: NodeState::Uncontacted,
+                    last_visit: UNIX_EPOCH,
+                },
+            );
+        }
     }
 }
 
