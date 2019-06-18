@@ -1,5 +1,5 @@
-mod crawler;
+mod shared_memory;
 
 fn main() {
-    crawler::crawl();
+    shared_memory::crawl();
 }
