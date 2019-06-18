@@ -124,5 +124,3 @@ mod tests {
         assert_eq!(Some(n2), db.next());
     }
 }
-
-pub fn crawl() {}
