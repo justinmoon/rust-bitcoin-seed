@@ -22,12 +22,12 @@ struct Node {
 }
 
 struct NodeDb {
-    nodes: Arc<Mutex<Vec<Node>>>,
+    nodes: Arc<Mutex<HashMap<SocketAddr, Node>>>,
 }
 
 impl NodeDb {
     fn new() -> NodeDb {
-        let mut nodes: Vec<Node> = vec![];
+        let mut nodes: HashMap<SocketAddr, Node> = HashMap::new();
         NodeDb {
             nodes: Arc::new(Mutex::new(nodes)),
         }
@@ -43,7 +43,7 @@ impl NodeDb {
 
         // acquire the db lock and build up the report map
         let nodes = self.nodes.lock().unwrap();
-        for node in nodes.iter() {
+        for (_, node) in nodes.iter() {
             let mut count = report.entry(node.state.clone()).or_insert(0); // FIXME already initialized ...
             *count += 1; // why?
         }
@@ -54,16 +54,16 @@ impl NodeDb {
         let nodes = self.nodes.lock().unwrap();
         let now = SystemTime::now();
         let ten_minutes_ago = now - Duration::new(10 * 60, 0);
-        for node in nodes.iter() {
+        for (_, node) in &mut nodes.iter() {
             if node.last_visit < ten_minutes_ago {
-                return Some((node.clone()));
+                return Some(node.clone());
             }
         }
         None
     }
     fn insert(&self, node: Node) {
         let mut nodes = self.nodes.lock().unwrap();
-        nodes.push(node);
+        nodes.insert(node.addr, node);
     }
 }
 
@@ -74,17 +74,17 @@ mod tests {
     #[test]
     fn test_report() {
         let n1 = Node {
-            addr: "123.123.123.123:8888".parse().unwrap(),
+            addr: "1.1.1.1:8888".parse().unwrap(),
             state: NodeState::Online,
             last_visit: SystemTime::now(),
         };
         let n2 = Node {
-            addr: "123.123.123.123:8888".parse().unwrap(),
+            addr: "2.2.2.2:8888".parse().unwrap(),
             state: NodeState::Online,
             last_visit: SystemTime::now(),
         };
         let n3 = Node {
-            addr: "123.123.123.123:8888".parse().unwrap(),
+            addr: "3.3.3.3:8888".parse().unwrap(),
             state: NodeState::Offline,
             last_visit: SystemTime::now(),
         };
@@ -102,19 +102,25 @@ mod tests {
     #[test]
     fn test_next() {
         let mut db = NodeDb::new();
+
+        // insert one node that isn't due for visit
         let n1 = Node {
             addr: "123.123.123.123:8888".parse().unwrap(),
             state: NodeState::Online,
             last_visit: SystemTime::now(),
         };
         db.insert(n1);
+        // n1 isn't due so None is our answer
         assert_eq!(None, db.next());
+
+        // insert another node that is due for a visit
         let n2 = Node {
             addr: "123.123.123.123:8888".parse().unwrap(),
             state: NodeState::Online,
             last_visit: SystemTime::now() - Duration::new(15 * 60, 0),
         };
         db.insert(n2.clone());
+        // n2 is due, so is "next"
         assert_eq!(Some(n2), db.next());
     }
 }
