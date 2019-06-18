@@ -8,64 +8,14 @@ use bitcoin::network::{
 use std::collections::HashMap;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream, ToSocketAddrs};
-use std::thread::sleep;
+use std::sync::Arc;
+use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use bitcoin::network::constants::Network;
 
 mod db;
 mod utils;
-
-struct WorkerOutput {
-    node: db::Node,
-    version_msg: Option<VersionMessage>,
-    addr_msg: Option<Vec<(u32, Address)>>,
-}
-
-impl WorkerOutput {
-    fn new(node: db::Node) -> WorkerOutput {
-        WorkerOutput {
-            node: node,
-            version_msg: None,
-            addr_msg: None,
-        }
-    }
-}
-
-fn worker(db: &mut db::NodeDb) {
-    loop {
-        // TODO: print how many nodes are due for a visit
-        let next = db.next();
-        let mut output = match next {
-            Some(node) => visit(node),
-            None => {
-                sleep(Duration::new(1 * 60, 0));
-                break;
-            }
-        };
-        match output.version_msg {
-            Some(version) => {
-                println!("version: {:?}", version);
-                output.node.state = db::NodeState::Online;
-                db.insert(output.node);
-            }
-            None => {
-                println!("version handshake failed");
-                output.node.state = db::NodeState::Offline;
-                db.insert(output.node);
-            }
-        }
-        match output.addr_msg {
-            Some(addr_msg) => {
-                for net_addr in addr_msg {
-                    let addr = net_addr.1.socket_addr().unwrap();
-                    db.initialize(addr);
-                }
-            }
-            None => println!("no addresses received"),
-        }
-    }
-}
 
 fn bootstrap(db: &mut db::NodeDb) {
     for addr in utils::dns_seed(Network::Bitcoin) {
@@ -172,8 +122,72 @@ fn visit(node: db::Node) -> WorkerOutput {
     }
 }
 
+struct WorkerOutput {
+    node: db::Node,
+    version_msg: Option<VersionMessage>,
+    addr_msg: Option<Vec<(u32, Address)>>,
+}
+
+impl WorkerOutput {
+    fn new(node: db::Node) -> WorkerOutput {
+        WorkerOutput {
+            node: node,
+            version_msg: None,
+            addr_msg: None,
+        }
+    }
+}
+
+fn worker(db: &mut db::NodeDb) {
+    loop {
+        // TODO: print how many nodes are due for a visit
+        let next = db.next();
+        let mut output = match next {
+            Some(node) => visit(node),
+            None => {
+                thread::sleep(Duration::new(1 * 60, 0));
+                break;
+            }
+        };
+        match output.version_msg {
+            Some(version) => {
+                println!("version: {:?}", version);
+                output.node.state = db::NodeState::Online;
+                db.insert(output.node);
+            }
+            None => {
+                println!("version handshake failed");
+                output.node.state = db::NodeState::Offline;
+                db.insert(output.node);
+            }
+        }
+        match output.addr_msg {
+            Some(addr_msg) => {
+                for net_addr in addr_msg {
+                    let addr = net_addr.1.socket_addr().unwrap();
+                    db.initialize(addr);
+                }
+            }
+            None => println!("no addresses received"),
+        }
+    }
+}
+
+fn spawn(nthreads: i32, mut db: &'static mut db::NodeDb) {
+    for _ in 0..nthreads {
+        thread::spawn(move || {
+            worker(&mut db.clone());
+        });
+    }
+}
+
 pub fn crawl() {
     let mut db = db::NodeDb::new();
     bootstrap(&mut db);
-    worker(&mut db);
+    spawn(100, &mut db);
+    loop {
+        thread::sleep(Duration::new(1 * 60, 0));
+        let report = db.report();
+        println!("{:?}", report);
+    }
 }
