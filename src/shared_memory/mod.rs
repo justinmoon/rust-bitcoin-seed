@@ -1,4 +1,5 @@
 use bitcoin::consensus::encode::serialize;
+use bitcoin::network::constants::Network;
 use bitcoin::network::{
     address::Address,
     message::{NetworkMessage, RawNetworkMessage},
@@ -12,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use bitcoin::network::constants::Network;
+use std::process::exit;
 
 mod db;
 mod utils;
@@ -35,7 +36,7 @@ fn visit(node: db::Node) -> WorkerOutput {
 
             // timeout in 30 seconds
             stream
-                .set_read_timeout(Some(Duration::new(3, 0)))
+                .set_read_timeout(Some(Duration::new(5, 0)))
                 .expect("Couldn't set timeout");
 
             // write version
@@ -142,11 +143,12 @@ impl WorkerOutput {
 fn worker(tdb: Arc<Mutex<db::NodeDb>>) {
     loop {
         // TODO: print how many nodes are due for a visit
-        let db = tdb.lock().unwrap();
+        let mut db = tdb.lock().unwrap();
         let next = db.next();
         drop(db);
         let mut output = match next {
             Some(node) => visit(node),
+
             None => {
                 thread::sleep(Duration::new(1 * 60, 0));
                 break;
@@ -181,8 +183,8 @@ fn worker(tdb: Arc<Mutex<db::NodeDb>>) {
 
 fn spawn(nthreads: i32, tdb: Arc<Mutex<db::NodeDb>>) {
     for _ in 0..nthreads {
-        //let db_clone = Arc::clone(&tdb);
-        let mut db_clone = tdb.clone();
+        let db_clone = Arc::clone(&tdb);
+        //let mut db_clone = tdb.clone();
         thread::spawn(move || {
             worker(db_clone);
         });
@@ -193,11 +195,19 @@ pub fn crawl() {
     let mut db = db::NodeDb::new();
     let mut tdb = Arc::new(Mutex::new(db));
     bootstrap(tdb.clone());
-    spawn(100, tdb.clone());
+    spawn(1000, tdb.clone());
     loop {
         thread::sleep(Duration::new(1, 0));
         let _db = tdb.lock().unwrap();
         let report = _db.report();
-        println!("\n\nReport{:?}", report);
+        println!(
+            "\n\nOnline: {:?} Offline: {:?} Uncontacted {:?}",
+            report.get(&db::NodeState::Online).unwrap(),
+            report.get(&db::NodeState::Offline).unwrap(),
+            report.get(&db::NodeState::Uncontacted).unwrap(),
+        );
+        //if report.get(&db::NodeState::Online).unwrap() > &20 {
+        //exit(1);
+        //}
     }
 }

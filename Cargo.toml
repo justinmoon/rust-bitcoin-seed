@@ -1,10 +1,8 @@
 [package]
-name = "crawler"
-version = "0.1.0"
+name = "bitcoin-seed"
+version = "0.0.1"
 authors = ["Justin Moon <mail@justinmoon.com>"]
 edition = "2018"
 
 [dependencies]
 bitcoin = "0.18.0"
-tokio = "0.1.21"
-byteorder = "0.5"

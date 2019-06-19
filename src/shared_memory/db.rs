@@ -47,13 +47,14 @@ impl NodeDb {
         report
     }
     // get next `n` nodes due for a visit
-    pub fn next(&self) -> Option<Node> {
+    pub fn next(&mut self) -> Option<Node> {
         let now = SystemTime::now();
-        let ten_minutes_ago = now - Duration::new(10 * 60, 0);
+        let one_hour_ago = now - Duration::new(60 * 60, 0);
         for (_, node) in &mut self.nodes.iter() {
-            if node.last_visit < ten_minutes_ago {
+            if node.last_visit < one_hour_ago {
                 let mut n = node.clone();
                 n.last_visit = SystemTime::now();
+                self.insert(n.clone());
                 return Some(n);
             }
         }
@@ -131,6 +132,8 @@ mod tests {
         };
         db.insert(n2.clone());
         // n2 is due, so is "next"
-        assert_eq!(n2.addr, db.next().unwrap().addr);
+        let r = db.next().unwrap();
+        assert_eq!(n2.addr, r.addr);
+        assert!(r.last_visit > SystemTime::now() - Duration::new(1, 0));
     }
 }
