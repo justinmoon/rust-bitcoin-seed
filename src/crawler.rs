@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-mod db;
-mod utils;
+use super::db;
+use super::utils;
 
 fn bootstrap(tdb: Arc<Mutex<db::NodeDb>>) {
     let mut db = tdb.lock().unwrap();

@@ -1,5 +1,7 @@
-mod shared_memory;
+mod crawler;
+mod db;
+mod utils;
 
 fn main() {
-    shared_memory::crawl();
+    crawler::crawl();
 }
