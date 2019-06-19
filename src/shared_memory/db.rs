@@ -1,20 +1,15 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use std::clone::Clone;
-use std::cmp::{Eq, PartialEq};
-use std::hash::Hash;
-
-#[derive(Eq, Debug, PartialEq, Clone, Hash)]
+#[derive(Eq, Debug, PartialEq, Clone, Hash)] // FIXME
 pub enum NodeState {
     Online,
     Offline,
     Uncontacted,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)] // FIXME
 pub struct Node {
     pub addr: SocketAddr,
     pub state: NodeState,
@@ -46,7 +41,7 @@ impl NodeDb {
         }
         report
     }
-    // get next `n` nodes due for a visit
+    // get next `n` nodes due for a visit, sets `last_visit` to now
     pub fn next(&mut self) -> Option<Node> {
         let now = SystemTime::now();
         let one_hour_ago = now - Duration::new(60 * 60, 0);
@@ -64,7 +59,7 @@ impl NodeDb {
     pub fn insert(&mut self, node: Node) {
         self.nodes.insert(node.addr, node);
     }
-    pub fn initialize(&mut self, addr: SocketAddr) {
+    pub fn init(&mut self, addr: SocketAddr) {
         if !self.nodes.contains_key(&addr) {
             self.nodes.insert(
                 addr,

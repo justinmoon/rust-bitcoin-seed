@@ -1,10 +1,12 @@
 use bitcoin::network::{
-    address::Address, message::NetworkMessage, message_network::VersionMessage,
+    address::Address, constants::Network, message::NetworkMessage, message_network::VersionMessage,
 };
+use env_logger;
+use log::{info, trace, LevelFilter};
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
-
-use bitcoin::network::constants::Network;
 
 // copied from murmel
 const MAIN_SEEDER: [&str; 5] = [
@@ -23,30 +25,30 @@ const TEST_SEEDER: [&str; 4] = [
 pub fn dns_seed(network: Network) -> Vec<SocketAddr> {
     let mut seeds = Vec::new();
     if network == Network::Bitcoin {
-        println!("reaching out for DNS seed...");
+        info!("reaching out for DNS seed...");
         for seedhost in MAIN_SEEDER.iter() {
             if let Ok(lookup) = (*seedhost, 8333).to_socket_addrs() {
                 for host in lookup {
                     seeds.push(host);
                 }
             } else {
-                println!("{} did not answer", seedhost);
+                trace!("{} did not answer", seedhost);
             }
         }
-        println!("received {} DNS seeds", seeds.len());
+        info!("received {} DNS seeds", seeds.len());
     }
     if network == Network::Testnet {
-        println!("reaching out for DNS seed...");
+        info!("reaching out for DNS seed...");
         for seedhost in TEST_SEEDER.iter() {
             if let Ok(lookup) = (*seedhost, 18333).to_socket_addrs() {
                 for host in lookup {
                     seeds.push(host);
                 }
             } else {
-                println!("{} did not answer", seedhost);
+                trace!("{} did not answer", seedhost);
             }
         }
-        println!("received {} DNS seeds", seeds.len());
+        info!("received {} DNS seeds", seeds.len());
     }
     seeds
 }
@@ -71,4 +73,19 @@ pub fn compile_version() -> NetworkMessage {
         start_height: 1,
         relay: false,
     })
+}
+
+pub fn init_logger() {
+    env_logger::Builder::new()
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{} [{}] - {}",
+                thread::current().name().unwrap(),
+                record.level(),
+                record.args()
+            )
+        })
+        .filter(None, LevelFilter::Info)
+        .init();
 }
