@@ -3,6 +3,9 @@ use bitcoin::network::{
 };
 use env_logger;
 use log::{info, trace, LevelFilter};
+use std::error::Error;
+use std::fmt;
+use std::io;
 use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::thread;
@@ -88,4 +91,38 @@ pub fn init_logger() {
         })
         .filter(None, LevelFilter::Info)
         .init();
+}
+
+#[derive(Debug)]
+pub struct CrawlerError {
+    msg: String,
+}
+
+impl From<io::Error> for CrawlerError {
+    fn from(error: io::Error) -> Self {
+        CrawlerError {
+            msg: error.to_string(),
+        }
+    }
+}
+
+impl From<bitcoin::consensus::encode::Error> for CrawlerError {
+    fn from(error: bitcoin::consensus::encode::Error) -> Self {
+        CrawlerError {
+            msg: error.to_string(),
+        }
+    }
+}
+impl fmt::Display for CrawlerError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.msg)
+    }
+}
+
+impl Error for CrawlerError {}
+
+impl CrawlerError {
+    pub fn new(msg: String) -> CrawlerError {
+        CrawlerError { msg }
+    }
 }

@@ -23,101 +23,85 @@ fn bootstrap(tdb: Arc<Mutex<db::NodeDb>>) {
     }
 }
 
-fn visit(node: db::Node) -> WorkerOutput {
+fn visit(node: db::Node) -> Result<WorkerOutput, utils::CrawlerError> {
     trace!("Connecting to {}", &node.addr);
     let mut worker_output = WorkerOutput::new(node.clone());
-    match TcpStream::connect_timeout(&node.addr, Duration::new(1, 0)) {
-        Ok(mut stream) => {
-            trace!("Connected to {}", &node.addr);
+    let mut stream = TcpStream::connect_timeout(&node.addr, Duration::new(1, 0))?;
+    trace!("Connected to {}", &node.addr);
 
-            // timeout in 30 seconds
-            stream
-                .set_read_timeout(Some(Duration::new(5, 0)))
-                .expect("Couldn't set timeout");
+    // timeout in 30 seconds
+    stream.set_read_timeout(Some(Duration::new(5, 0)))?;
 
-            // write version
-            let lversion = utils::compile_version();
-            stream
-                .write(&serialize(&RawNetworkMessage {
-                    magic: 0xd9b4bef9,
-                    payload: lversion,
-                }))
-                .expect("Couldn't write version");
-            trace!("Sent version");
+    // write version
+    let lversion = utils::compile_version();
+    stream.write(&serialize(&RawNetworkMessage {
+        magic: 0xd9b4bef9,
+        payload: lversion,
+    }))?;
+    trace!("Sent version");
 
-            // handle messages as they arrive
-            loop {
-                let mut reader = StreamReader::new(&mut stream, Some(10000000));
-                match reader.next_message() {
-                    Ok(message) => match message.payload {
-                        NetworkMessage::Version(ref rversion) => {
-                            trace!("Received version");
-                            let lverack = NetworkMessage::Verack;
-                            stream
-                                .write(&serialize(&RawNetworkMessage {
-                                    magic: 0xd9b4bef9,
-                                    payload: lverack,
-                                }))
-                                .expect("Couldn't write verack");
-                            worker_output.version_msg = Some(rversion.clone());
-                            trace!("Sent verack");
-                        }
-                        NetworkMessage::Verack => {
-                            trace!("Received verack");
-                            let getaddr = NetworkMessage::GetAddr;
-                            stream
-                                .write(&serialize(&RawNetworkMessage {
-                                    magic: 0xd9b4bef9,
-                                    payload: getaddr,
-                                }))
-                                .expect("Couldn't write getaddr");
-                            trace!("Sent getaddr");
-                        }
-                        NetworkMessage::Ping(ref ping) => {
-                            trace!("Received ping");
-                            let pong = NetworkMessage::Pong(*ping);
-                            stream
-                                .write(&serialize(&RawNetworkMessage {
-                                    magic: 0xd9b4bef9,
-                                    payload: pong,
-                                }))
-                                .expect("Couldn't write pong");
-                            trace!("Sent pong");
-                        }
-                        NetworkMessage::Addr(ref addr) => {
-                            trace!("Received {} addrs", addr.len());
-                            if addr.len() > 1 {
-                                worker_output.addr_msg = Some(addr.clone());
-                                break;
-                            }
-                        }
-                        _ => {
-                            trace!("Received {}", message.command());
-                        }
-                    },
-                    Err(err) => {
-                        trace!("P2P error: {}", err.to_string());
-                        let fatal_errors = vec![
-                            // stream timed out
-                            String::from("Resource temporarily unavailable (os error 11)"),
-                            // peer hung up (?)
-                            String::from("unexpected end of file"),
-                            // peer hung up (?)
-                            String::from("invalid checksum: expected 5df6e0e2, actual 00000000"),
-                        ];
-                        if fatal_errors.contains(&err.to_string()) {
-                            break;
-                        }
+    // handle messages as they arrive
+    loop {
+        let mut reader = StreamReader::new(&mut stream, Some(10000000));
+        match reader.next_message() {
+            Ok(msg) => match msg.payload {
+                NetworkMessage::Version(ref rversion) => {
+                    trace!("Received version");
+                    let lverack = NetworkMessage::Verack;
+                    stream.write(&serialize(&RawNetworkMessage {
+                        magic: 0xd9b4bef9,
+                        payload: lverack,
+                    }))?;
+                    worker_output.version_msg = Some(rversion.clone());
+                    trace!("Sent verack");
+                }
+                NetworkMessage::Verack => {
+                    trace!("Received verack");
+                    let getaddr = NetworkMessage::GetAddr;
+                    stream.write(&serialize(&RawNetworkMessage {
+                        magic: 0xd9b4bef9,
+                        payload: getaddr,
+                    }))?;
+                    trace!("Sent getaddr");
+                }
+                NetworkMessage::Ping(ref ping) => {
+                    trace!("Received ping");
+                    let pong = NetworkMessage::Pong(*ping);
+                    stream.write(&serialize(&RawNetworkMessage {
+                        magic: 0xd9b4bef9,
+                        payload: pong,
+                    }))?;
+                    trace!("Sent pong");
+                }
+                NetworkMessage::Addr(ref addr) => {
+                    trace!("Received {} addrs", addr.len());
+                    if addr.len() > 1 {
+                        worker_output.addr_msg = Some(addr.clone());
+                        break;
                     }
                 }
+                _ => {
+                    trace!("Received {}", msg.command());
+                }
+            },
+            Err(err) => {
+                trace!("P2P error: {}", err.to_string());
+                let fatal_errors = vec![
+                    // stream timed out
+                    String::from("Resource temporarily unavailable (os error 11)"),
+                    // peer hung up (?)
+                    String::from("unexpected end of file"),
+                    // peer hung up (?)
+                    String::from("invalid checksum: expected 5df6e0e2, actual 00000000"),
+                ];
+                if fatal_errors.contains(&err.to_string()) {
+                    break;
+                }
             }
-            return worker_output;
-        }
-        Err(e) => {
-            trace!("Failed to connect: {}", e);
-            return worker_output;
         }
     }
+
+    return Ok(worker_output);
 }
 
 struct WorkerOutput {
@@ -142,7 +126,7 @@ fn worker(tdb: Arc<Mutex<db::NodeDb>>) {
         let next = db.next();
         drop(db);
         // if next, visit them. otherwise, sleep.
-        let mut output = match next {
+        let result = match next {
             Some(node) => visit(node),
 
             None => {
@@ -152,32 +136,37 @@ fn worker(tdb: Arc<Mutex<db::NodeDb>>) {
         };
         // if `version_msg` present in output, mark node online. otherwise,
         // mark them offline
-        match output.version_msg {
-            Some(_) => {
-                output.node.state = db::NodeState::Online;
-                let mut db = tdb.lock().unwrap();
-                db.insert(output.node);
-            }
-            None => {
-                output.node.state = db::NodeState::Offline;
-                let mut db = tdb.lock().unwrap();
-                db.insert(output.node);
-            }
-        }
-        // if addr_msg present on `output`, initialize these records in db
-        match output.addr_msg {
-            Some(addr_msg) => {
-                for net_addr in addr_msg {
-                    match net_addr.1.socket_addr() {
-                        Ok(addr) => {
-                            let mut db = tdb.lock().unwrap();
-                            db.init(addr);
-                        }
-                        Err(_) => (),
+        match result {
+            Ok(mut output) => {
+                match output.version_msg {
+                    Some(_) => {
+                        output.node.state = db::NodeState::Online;
+                        let mut db = tdb.lock().unwrap();
+                        db.insert(output.node);
+                    }
+                    None => {
+                        output.node.state = db::NodeState::Offline;
+                        let mut db = tdb.lock().unwrap();
+                        db.insert(output.node);
                     }
                 }
+                // if addr_msg present on `output`, initialize these records in db
+                match output.addr_msg {
+                    Some(addr_msg) => {
+                        for net_addr in addr_msg {
+                            match net_addr.1.socket_addr() {
+                                Ok(addr) => {
+                                    let mut db = tdb.lock().unwrap();
+                                    db.init(addr);
+                                }
+                                Err(_) => (),
+                            }
+                        }
+                    }
+                    None => (),
+                }
             }
-            None => (),
+            Err(err) => trace!("Crawler error: {}", err),
         }
     }
 }

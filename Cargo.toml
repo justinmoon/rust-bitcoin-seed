@@ -5,7 +5,7 @@ authors = ["Justin Moon <mail@justinmoon.com>"]
 edition = "2018"
 
 [dependencies]
-bitcoin = "0.18.0"
+bitcoin = { git = "https://github.com/rust-bitcoin/rust-bitcoin", branch = "master" }
 log = "0.4"
 env_logger = "0.6.1"
 
