@@ -14,6 +14,7 @@ use std::thread;
 use std::time::Duration;
 
 use super::db;
+use super::dns;
 use super::utils;
 
 fn bootstrap(tdb: Arc<Mutex<db::NodeDb>>) {
@@ -180,8 +181,16 @@ fn spawn(nthreads: i32, tdb: Arc<Mutex<db::NodeDb>>) {
             .spawn(move || {
                 worker(db);
             })
-            .expect("Couldn't spawn thread");
+            .expect("Couldn't spawn worker thread");
     }
+    let _db = Arc::clone(&tdb);
+    thread::Builder::new()
+        .name(String::from("dns"))
+        .spawn(move || {
+            println!("spawning dns thread");
+            dns::serve(_db);
+        })
+        .expect("Couldn't spawn worker thread");
 }
 
 pub fn crawl() {

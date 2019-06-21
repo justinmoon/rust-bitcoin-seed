@@ -2,6 +2,9 @@ use std::fs::File;
 use std::io;
 use std::io::Read;
 use std::net::{Ipv4Addr, Ipv6Addr, UdpSocket};
+use std::sync::{Arc, Mutex};
+
+use super::db;
 
 pub struct BytePacketBuffer {
     pub buf: [u8; 512],
@@ -748,7 +751,7 @@ fn parse() {
     }
 }
 
-pub fn serve() {
+pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
     // Forward queries to Google's public DNS
     let server = ("8.8.8.8", 53);
 
@@ -866,10 +869,4 @@ pub fn serve() {
             }
         }
     }
-}
-
-fn main() {
-    //resolve(&"seed.bitcoin.sipa.be");
-    //resolve(&"digitalocean.com");
-    serve();
 }

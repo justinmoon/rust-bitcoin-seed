@@ -4,6 +4,5 @@ mod dns;
 mod utils;
 
 fn main() {
-    //crawler::crawl();
-    dns::serve();
+    crawler::crawl();
 }
