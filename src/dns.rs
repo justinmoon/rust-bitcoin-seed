@@ -748,12 +748,12 @@ fn parse() {
     }
 }
 
-fn serve() {
+pub fn serve() {
     // Forward queries to Google's public DNS
     let server = ("8.8.8.8", 53);
 
     // Bind UDP socket on port 2053
-    let socket = UdpSocket::bind(("0.0.0.0", 2053)).unwrap();
+    let socket = UdpSocket::bind(("0.0.0.0", 2054)).unwrap();
 
     // Handle queries sequentially in a loop
     loop {
@@ -771,7 +771,10 @@ fn serve() {
 
         // Convert BytePacketBuffer into DnsPacket, jump to next iteration if it fails
         let request = match DnsPacket::from_buffer(&mut req_buffer) {
-            Ok(x) => x,
+            Ok(x) => {
+                println!("Received DnsPacket: {:?}", x);
+                x
+            }
             Err(e) => {
                 println!("Failed to parse UDP query packet: {:?}", e);
                 continue;
@@ -799,7 +802,24 @@ fn serve() {
                 packet.questions.push(question.clone());
                 packet.header.rescode = result.header.rescode;
 
-                for rec in result.answers {
+                let my_answers = vec![
+                    DnsRecord::A {
+                        domain: String::from("seed.bitcoin.sipa.be"),
+                        addr: "152.169.218.22".parse().unwrap(),
+                        ttl: 3094,
+                    },
+                    DnsRecord::A {
+                        domain: String::from("seed.bitcoin.sipa.be"),
+                        addr: "211.23.128.57".parse().unwrap(),
+                        ttl: 3094,
+                    },
+                    DnsRecord::A {
+                        domain: String::from("seed.bitcoin.sipa.be"),
+                        addr: "3.17.172.137".parse().unwrap(),
+                        ttl: 3094,
+                    },
+                ];
+                for rec in my_answers {
                     println!("Answer: {:?}", rec);
                     packet.answers.push(rec);
                 }
