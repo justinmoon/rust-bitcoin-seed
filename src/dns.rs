@@ -752,11 +752,8 @@ fn parse() {
 }
 
 pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
-    // Forward queries to Google's public DNS
-    let server = ("8.8.8.8", 53);
-
     // Bind UDP socket on port 2053
-    let socket = UdpSocket::bind(("0.0.0.0", 2054)).unwrap();
+    let socket = UdpSocket::bind(("0.0.0.0", 2053)).unwrap();
 
     // Handle queries sequentially in a loop
     loop {
@@ -812,7 +809,7 @@ pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
             };
 
             packet.answers.push(DnsRecord::A {
-                domain: String::from("seed.bitcoin.sipa.be"),
+                domain: String::from(question.name.clone()), // FIXME
                 addr: ip,
                 ttl: 3094, // peter wuille was sending this so i copied it
             });
