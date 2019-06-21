@@ -79,17 +79,17 @@ pub fn compile_version() -> NetworkMessage {
 }
 
 pub fn init_logger() {
-    env_logger::Builder::new()
+    let env = env_logger::Env::default();
+    env_logger::Builder::from_env(env)
         .format(|buf, record| {
             writeln!(
                 buf,
-                "{} [{}] - {}",
-                thread::current().name().unwrap(),
+                "[{}] - {} - {}",
                 record.level(),
+                thread::current().name().unwrap(),
                 record.args()
             )
         })
-        .filter(None, LevelFilter::Info)
         .init();
 }
 
