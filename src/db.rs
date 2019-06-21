@@ -26,7 +26,6 @@ impl NodeDb {
         NodeDb { nodes }
     }
     pub fn report(&self) -> HashMap<NodeState, i32> {
-        // HACK can't use NodeState as HashMap key
         let mut report: HashMap<NodeState, i32> = HashMap::new();
 
         // initialize here so we know all keys always present
@@ -41,6 +40,7 @@ impl NodeDb {
         }
         report
     }
+    // get `n` online nodes (TODO iterate more randomly?)
     pub fn fetch_online_nodes(&self, n: usize) -> Vec<Node> {
         let mut nodes = vec![];
         for (_, node) in self.nodes.iter() {

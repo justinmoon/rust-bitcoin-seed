@@ -791,95 +791,57 @@ pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
         packet.header.recursion_available = true;
         packet.header.response = true;
 
-        // Return `FORMERR` if no questions present
         if request.questions.is_empty() {
             packet.header.rescode = ResultCode::FORMERR;
+        } else {
+            packet.header.rescode = ResultCode::NOERROR;
         }
-        // Otherwise
-        else {
-            let question = &request.questions[0];
-            println!("Received query: {:?}", question);
 
-            // Forward request to Google
-            if let Ok(result) = lookup(&question.name, question.qtype, server) {
-                packet.questions.push(question.clone());
-                packet.header.rescode = result.header.rescode;
+        let question = &request.questions[0];
+        packet.questions.push(question.clone());
+        println!("Received query: {:?}", question);
 
-                let my_answers = vec![
-                    DnsRecord::A {
-                        domain: String::from("seed.bitcoin.sipa.be"),
-                        addr: "152.169.218.22".parse().unwrap(),
-                        ttl: 3094,
-                    },
-                    DnsRecord::A {
-                        domain: String::from("seed.bitcoin.sipa.be"),
-                        addr: "211.23.128.57".parse().unwrap(),
-                        ttl: 3094,
-                    },
-                    DnsRecord::A {
-                        domain: String::from("seed.bitcoin.sipa.be"),
-                        addr: "3.17.172.137".parse().unwrap(),
-                        ttl: 3094,
-                    },
-                ];
-                let nodes = tdb.lock().unwrap().fetch_online_nodes(10 as usize);
+        // Lookup nodes in db and assemble response
+        let nodes = tdb.lock().unwrap().fetch_online_nodes(10);
 
-                for node in nodes {
-                    let ip = match node.addr.ip() {
-                        IpAddr::V4(ip4) => ip4,
-                        _ => panic!("can't handle ipv6"),
-                    };
+        for node in nodes {
+            // DnsRecord needs Ipv4Addr, this extracts it from node's SocketAddr
+            let ip = match node.addr.ip() {
+                IpAddr::V4(ip4) => ip4,
+                _ => panic!("can't handle ipv6"),
+            };
 
-                    packet.answers.push(DnsRecord::A {
-                        domain: String::from("seed.bitcoin.sipa.be"),
-                        addr: ip,
-                        ttl: 3094,
-                    });
-                }
-                //for rec in my_answers {
-                //println!("Answer: {:?}", rec);
-                //packet.answers.push(rec);
-                //}
+            packet.answers.push(DnsRecord::A {
+                domain: String::from("seed.bitcoin.sipa.be"),
+                addr: ip,
+                ttl: 3094, // peter wuille was sending this so i copied it
+            });
+        }
 
-                for rec in result.authorities {
-                    println!("Authority: {:?}", rec);
-                    packet.authorities.push(rec);
-                }
-
-                for rec in result.resources {
-                    println!("Resource: {:?}", rec);
-                    packet.resources.push(rec);
-                }
-            } else {
-                // If lookup failed, set `SERVFAIL` response code
-                packet.header.rescode = ResultCode::SERVFAIL;
+        // Encode and send our response
+        let mut res_buffer = BytePacketBuffer::new();
+        match packet.write(&mut res_buffer) {
+            Ok(_) => {}
+            Err(e) => {
+                println!("Failed to encode UDP response packet: {:?}", e);
+                continue;
             }
+        };
 
-            // Encode and send our response
-            let mut res_buffer = BytePacketBuffer::new();
-            match packet.write(&mut res_buffer) {
-                Ok(_) => {}
-                Err(e) => {
-                    println!("Failed to encode UDP response packet: {:?}", e);
-                    continue;
-                }
-            };
+        let len = res_buffer.pos();
+        let data = match res_buffer.get_range(0, len) {
+            Ok(x) => x,
+            Err(e) => {
+                println!("Failed to retrieve response buffer: {:?}", e);
+                continue;
+            }
+        };
 
-            let len = res_buffer.pos();
-            let data = match res_buffer.get_range(0, len) {
-                Ok(x) => x,
-                Err(e) => {
-                    println!("Failed to retrieve response buffer: {:?}", e);
-                    continue;
-                }
-            };
-
-            match socket.send_to(data, src) {
-                Ok(_) => {}
-                Err(e) => {
-                    println!("Failed to send response buffer: {:?}", e);
-                    continue;
-                }
+        match socket.send_to(data, src) {
+            Ok(_) => {}
+            Err(e) => {
+                println!("Failed to send response buffer: {:?}", e);
+                continue;
             }
         }
     }
