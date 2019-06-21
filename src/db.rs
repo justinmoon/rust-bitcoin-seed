@@ -41,6 +41,18 @@ impl NodeDb {
         }
         report
     }
+    pub fn fetch_online_nodes(&self, n: usize) -> Vec<Node> {
+        let mut nodes = vec![];
+        for (_, node) in self.nodes.iter() {
+            if node.state == NodeState::Online {
+                nodes.push(node.clone());
+                if nodes.len() == n {
+                    break;
+                }
+            }
+        }
+        nodes
+    }
     // get next `n` nodes due for a visit, sets `last_visit` to now
     pub fn next(&mut self) -> Option<Node> {
         let now = SystemTime::now();

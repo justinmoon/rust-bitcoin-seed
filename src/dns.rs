@@ -1,7 +1,7 @@
 use std::fs::File;
 use std::io;
 use std::io::Read;
-use std::net::{Ipv4Addr, Ipv6Addr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, UdpSocket};
 use std::sync::{Arc, Mutex};
 
 use super::db;
@@ -822,10 +822,24 @@ pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
                         ttl: 3094,
                     },
                 ];
-                for rec in my_answers {
-                    println!("Answer: {:?}", rec);
-                    packet.answers.push(rec);
+                let nodes = tdb.lock().unwrap().fetch_online_nodes(10 as usize);
+
+                for node in nodes {
+                    let ip = match node.addr.ip() {
+                        IpAddr::V4(ip4) => ip4,
+                        _ => panic!("can't handle ipv6"),
+                    };
+
+                    packet.answers.push(DnsRecord::A {
+                        domain: String::from("seed.bitcoin.sipa.be"),
+                        addr: ip,
+                        ttl: 3094,
+                    });
                 }
+                //for rec in my_answers {
+                //println!("Answer: {:?}", rec);
+                //packet.answers.push(rec);
+                //}
 
                 for rec in result.authorities {
                     println!("Authority: {:?}", rec);
