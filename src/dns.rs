@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use super::db;
 
 pub struct BytePacketBuffer {
-    pub buf: [u8; 512],
+    pub buf: [u8; 4096],
     pub pos: usize,
 }
 
@@ -16,7 +16,7 @@ impl BytePacketBuffer {
     // keeping track of where we are.
     pub fn new() -> BytePacketBuffer {
         BytePacketBuffer {
-            buf: [0; 512],
+            buf: [0; 4096],
             pos: 0,
         }
     }
@@ -40,7 +40,7 @@ impl BytePacketBuffer {
 
     // A method for reading a single byte, and moving one step forward
     fn read(&mut self) -> Result<u8, io::Error> {
-        if self.pos >= 512 {
+        if self.pos >= 4096 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "End of buffer"));
         }
         let res = self.buf[self.pos];
@@ -52,14 +52,14 @@ impl BytePacketBuffer {
     // the internal position
 
     fn get(&mut self, pos: usize) -> Result<u8, io::Error> {
-        if pos >= 512 {
+        if pos >= 4096 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "End of buffer"));
         }
         Ok(self.buf[pos])
     }
 
     fn get_range(&mut self, start: usize, len: usize) -> Result<&[u8], io::Error> {
-        if start + len >= 512 {
+        if start + len >= 4096 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "End of buffer"));
         }
         Ok(&self.buf[start..start + len as usize])
@@ -158,7 +158,7 @@ impl BytePacketBuffer {
     }
 
     fn write(&mut self, val: u8) -> Result<(), io::Error> {
-        if self.pos >= 512 {
+        if self.pos >= 4096 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "End of buffer"));
         }
         self.buf[self.pos] = val;
@@ -753,6 +753,7 @@ fn parse() {
 
 pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
     // Bind UDP socket on port 2053
+    //let socket = UdpSocket::bind(("127.0.0.53", 53)).unwrap();
     let socket = UdpSocket::bind(("0.0.0.0", 2053)).unwrap();
 
     // Handle queries sequentially in a loop
@@ -798,21 +799,50 @@ pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
         packet.questions.push(question.clone());
         println!("Received query: {:?}", question);
 
-        // Lookup nodes in db and assemble response
-        let nodes = tdb.lock().unwrap().fetch_online_nodes(10);
+        if question.name == "seed.justinmoon.com" {
+            // Lookup nodes in db and assemble response
+            let nodes = tdb.lock().unwrap().fetch_online_nodes(10);
 
-        for node in nodes {
-            // DnsRecord needs Ipv4Addr, this extracts it from node's SocketAddr
-            let ip = match node.addr.ip() {
-                IpAddr::V4(ip4) => ip4,
-                _ => panic!("can't handle ipv6"),
-            };
+            for node in nodes {
+                // DnsRecord needs Ipv4Addr, this extracts it from node's SocketAddr
+                let ip = match node.addr.ip() {
+                    IpAddr::V4(ip4) => ip4,
+                    _ => panic!("can't handle ipv6"),
+                };
 
-            packet.answers.push(DnsRecord::A {
-                domain: String::from(question.name.clone()), // FIXME
-                addr: ip,
-                ttl: 3094, // peter wuille was sending this so i copied it
-            });
+                packet.answers.push(DnsRecord::A {
+                    domain: String::from(question.name.clone()), // FIXME
+                    addr: ip,
+                    ttl: 3094, // peter wuille was sending this so i copied it
+                });
+            }
+        } else {
+            // Forward queries to Google's public DNS
+            let server = ("8.8.8.8", 53);
+
+            if let Ok(result) = lookup(&question.name, question.qtype, server) {
+                println!("lookup succeeded");
+                packet.header.rescode = result.header.rescode;
+
+                for rec in result.answers {
+                    println!("Answer: {:?}", rec);
+                    packet.answers.push(rec);
+                }
+
+                for rec in result.authorities {
+                    println!("Authority: {:?}", rec);
+                    packet.authorities.push(rec);
+                }
+
+                for rec in result.resources {
+                    println!("Resource: {:?}", rec);
+                    packet.resources.push(rec);
+                }
+            } else {
+                // If lookup failed, set `SERVFAIL` response code
+                println!("lookup failed");
+                packet.header.rescode = ResultCode::SERVFAIL;
+            }
         }
 
         // Encode and send our response

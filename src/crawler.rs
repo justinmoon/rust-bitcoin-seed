@@ -19,7 +19,8 @@ use super::utils;
 
 fn bootstrap(tdb: Arc<Mutex<db::NodeDb>>) {
     let mut db = tdb.lock().unwrap();
-    for addr in utils::dns_seed(Network::Bitcoin) {
+    let seeds = utils::dns_seed(Network::Bitcoin);
+    for addr in seeds {
         db.init(addr);
     }
 }
@@ -31,7 +32,7 @@ fn visit(node: db::Node) -> Result<WorkerOutput, utils::CrawlerError> {
     trace!("Connected to {}", &node.addr);
 
     // timeout in 30 seconds
-    stream.set_read_timeout(Some(Duration::new(5, 0)))?;
+    stream.set_read_timeout(Some(Duration::new(60, 0)))?;
 
     // write version
     let lversion = utils::compile_version();
@@ -131,8 +132,10 @@ fn worker(tdb: Arc<Mutex<db::NodeDb>>) {
             Some(node) => visit(node),
 
             None => {
-                thread::sleep(Duration::new(1 * 60, 0));
-                break;
+                trace!("going to sleep");
+                thread::sleep(Duration::new(1, 0));
+                trace!("waking up");
+                continue;
             }
         };
         // if `version_msg` present in output, mark node online. otherwise,
@@ -172,8 +175,8 @@ fn worker(tdb: Arc<Mutex<db::NodeDb>>) {
     }
 }
 
-fn spawn(nthreads: i32, tdb: Arc<Mutex<db::NodeDb>>) {
-    log::info!("Starting {} threads", nthreads);
+fn spawn_worker_threads(tdb: Arc<Mutex<db::NodeDb>>, nthreads: i32) {
+    log::info!("Starting {} worker threads", nthreads);
     for i in 0..nthreads {
         let db = Arc::clone(&tdb);
         thread::Builder::new()
@@ -183,6 +186,10 @@ fn spawn(nthreads: i32, tdb: Arc<Mutex<db::NodeDb>>) {
             })
             .expect("Couldn't spawn worker thread");
     }
+}
+
+fn spawn_dns_thread(tdb: Arc<Mutex<db::NodeDb>>) {
+    log::info!("Starting DNS thread");
     let _db = Arc::clone(&tdb);
     thread::Builder::new()
         .name(String::from("dns"))
@@ -197,8 +204,10 @@ pub fn crawl() {
     utils::init_logger();
     let db = db::NodeDb::new();
     let tdb = Arc::new(Mutex::new(db));
+    spawn_dns_thread(tdb.clone());
+	thread::sleep(Duration::new(1, 0)); // make sure DNS thread starts (FIXME)
+    spawn_worker_threads(tdb.clone(), 20);
     bootstrap(tdb.clone());
-    spawn(1000, tdb.clone());
     loop {
         thread::sleep(Duration::new(1, 0));
         let _db = tdb.lock().unwrap();
