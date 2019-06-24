@@ -205,11 +205,11 @@ pub fn crawl() {
     let db = db::NodeDb::new();
     let tdb = Arc::new(Mutex::new(db));
     spawn_dns_thread(tdb.clone());
-	thread::sleep(Duration::new(1, 0)); // make sure DNS thread starts (FIXME)
+    thread::sleep(Duration::new(5, 0)); // make sure DNS thread starts (FIXME)
     spawn_worker_threads(tdb.clone(), 20);
     bootstrap(tdb.clone());
     loop {
-        thread::sleep(Duration::new(1, 0));
+        thread::sleep(Duration::new(60, 0));
         let _db = tdb.lock().unwrap();
         let report = _db.report();
         info!(

@@ -753,8 +753,7 @@ fn parse() {
 
 pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
     // Bind UDP socket on port 2053
-    //let socket = UdpSocket::bind(("127.0.0.53", 53)).unwrap();
-    let socket = UdpSocket::bind(("0.0.0.0", 2053)).unwrap();
+    let socket = UdpSocket::bind(("0.0.0.0", 53)).unwrap();
 
     // Handle queries sequentially in a loop
     loop {
@@ -801,7 +800,7 @@ pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
 
         if question.name == "seed.justinmoon.com" {
             // Lookup nodes in db and assemble response
-            let nodes = tdb.lock().unwrap().fetch_online_nodes(10);
+            let nodes = tdb.lock().unwrap().fetch_online_nodes(25);
 
             for node in nodes {
                 // DnsRecord needs Ipv4Addr, this extracts it from node's SocketAddr
