@@ -30,12 +30,15 @@ pub fn dns_seed(network: Network) -> Vec<SocketAddr> {
     if network == Network::Bitcoin {
         info!("reaching out for DNS seed...");
         for seedhost in MAIN_SEEDER.iter() {
-            if let Ok(lookup) = (*seedhost, 8333).to_socket_addrs() {
-                for host in lookup {
-                    seeds.push(host);
+            match (*seedhost, 8333).to_socket_addrs() {
+                Ok(lookup) => {
+                    for host in lookup {
+                        seeds.push(host);
+                    }
                 }
-            } else {
-                trace!("{} did not answer", seedhost);
+                Err(e) => {
+                    trace!("{} did not answer: {:?}", seedhost, e);
+                }
             }
         }
         info!("received {} DNS seeds", seeds.len());

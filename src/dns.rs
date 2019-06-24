@@ -753,7 +753,8 @@ fn parse() {
 
 pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
     // Bind UDP socket on port 2053
-    let socket = UdpSocket::bind(("0.0.0.0", 2053)).unwrap();
+    //let socket = UdpSocket::bind(("127.0.0.53", 53)).unwrap();
+    let socket = UdpSocket::bind(("0.0.0.0", 53)).unwrap();
 
     // Handle queries sequentially in a loop
     loop {
@@ -798,21 +799,57 @@ pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
         packet.questions.push(question.clone());
         println!("Received query: {:?}", question);
 
-        // Lookup nodes in db and assemble response
-        let nodes = tdb.lock().unwrap().fetch_online_nodes(10);
+        if question.name == "seed.justinmoon.com" {
 
-        for node in nodes {
-            // DnsRecord needs Ipv4Addr, this extracts it from node's SocketAddr
-            let ip = match node.addr.ip() {
-                IpAddr::V4(ip4) => ip4,
-                _ => panic!("can't handle ipv6"),
-            };
+            // Lookup nodes in db and assemble response
+            let nodes = tdb.lock().unwrap().fetch_online_nodes(10);
 
-            packet.answers.push(DnsRecord::A {
-                domain: String::from(question.name.clone()), // FIXME
-                addr: ip,
-                ttl: 3094, // peter wuille was sending this so i copied it
-            });
+            for node in nodes {
+                // DnsRecord needs Ipv4Addr, this extracts it from node's SocketAddr
+                let ip = match node.addr.ip() {
+                    IpAddr::V4(ip4) => ip4,
+                    _ => panic!("can't handle ipv6"),
+                };
+
+                packet.answers.push(DnsRecord::A {
+                    domain: String::from(question.name.clone()), // FIXME
+                    addr: ip,
+                    ttl: 3094, // peter wuille was sending this so i copied it
+                });
+            }
+        } else {
+            // Forward queries to Google's public DNS
+            let server = ("8.8.8.8", 53);
+
+            if let Ok(result) = lookup(&question.name, question.qtype, server) {
+                println!("lookup succeeded");
+                packet.header.rescode = result.header.rescode;
+
+                let mut i = 0;
+                for rec in result.answers {
+                    println!("Answer: {:?}", rec);
+                    packet.answers.push(rec);
+                    i += 1;
+                    if i > 5 {
+                        break;
+                    }
+                }
+
+                for rec in result.authorities {
+                    println!("Authority: {:?}", rec);
+                    packet.authorities.push(rec);
+                }
+
+                for rec in result.resources {
+                    println!("Resource: {:?}", rec);
+                    packet.resources.push(rec);
+                }
+            } else {
+                // If lookup failed, set `SERVFAIL` response code
+                println!("lookup failed");
+                packet.header.rescode = ResultCode::SERVFAIL;
+            }
+
         }
 
         // Encode and send our response
@@ -841,5 +878,6 @@ pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
                 continue;
             }
         }
+
     }
 }

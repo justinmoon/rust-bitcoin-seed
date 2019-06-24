@@ -19,7 +19,8 @@ use super::utils;
 
 fn bootstrap(tdb: Arc<Mutex<db::NodeDb>>) {
     let mut db = tdb.lock().unwrap();
-    for addr in utils::dns_seed(Network::Bitcoin) {
+    let seeds = utils::dns_seed(Network::Bitcoin);
+    for addr in seeds {
         db.init(addr);
     }
 }
@@ -31,7 +32,7 @@ fn visit(node: db::Node) -> Result<WorkerOutput, utils::CrawlerError> {
     trace!("Connected to {}", &node.addr);
 
     // timeout in 30 seconds
-    stream.set_read_timeout(Some(Duration::new(5, 0)))?;
+    stream.set_read_timeout(Some(Duration::new(60, 0)))?;
 
     // write version
     let lversion = utils::compile_version();
@@ -122,6 +123,7 @@ impl WorkerOutput {
 }
 
 fn worker(tdb: Arc<Mutex<db::NodeDb>>) {
+    thread::sleep(Duration::new(1, 0));
     loop {
         let mut db = tdb.lock().unwrap();
         let next = db.next();
@@ -131,7 +133,9 @@ fn worker(tdb: Arc<Mutex<db::NodeDb>>) {
             Some(node) => visit(node),
 
             None => {
-                thread::sleep(Duration::new(1 * 60, 0));
+                trace!("going to sleep");
+                thread::sleep(Duration::new(1, 0));
+                trace!("waking up");
                 break;
             }
         };
@@ -173,6 +177,15 @@ fn worker(tdb: Arc<Mutex<db::NodeDb>>) {
 }
 
 fn spawn(nthreads: i32, tdb: Arc<Mutex<db::NodeDb>>) {
+    let _db = Arc::clone(&tdb);
+    thread::Builder::new()
+        .name(String::from("dns"))
+        .spawn(move || {
+            println!("spawning dns thread");
+            dns::serve(_db);
+        })
+        .expect("Couldn't spawn worker thread");
+
     log::info!("Starting {} threads", nthreads);
     for i in 0..nthreads {
         let db = Arc::clone(&tdb);
@@ -183,22 +196,15 @@ fn spawn(nthreads: i32, tdb: Arc<Mutex<db::NodeDb>>) {
             })
             .expect("Couldn't spawn worker thread");
     }
-    let _db = Arc::clone(&tdb);
-    thread::Builder::new()
-        .name(String::from("dns"))
-        .spawn(move || {
-            println!("spawning dns thread");
-            dns::serve(_db);
-        })
-        .expect("Couldn't spawn worker thread");
 }
 
 pub fn crawl() {
     utils::init_logger();
     let db = db::NodeDb::new();
     let tdb = Arc::new(Mutex::new(db));
+    spawn(20, tdb.clone());
+    thread::sleep(Duration::new(1, 0));
     bootstrap(tdb.clone());
-    spawn(1000, tdb.clone());
     loop {
         thread::sleep(Duration::new(1, 0));
         let _db = tdb.lock().unwrap();
