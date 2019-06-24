@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use super::db;
 
 pub struct BytePacketBuffer {
-    pub buf: [u8; 512],
+    pub buf: [u8; 4096],
     pub pos: usize,
 }
 
@@ -16,7 +16,7 @@ impl BytePacketBuffer {
     // keeping track of where we are.
     pub fn new() -> BytePacketBuffer {
         BytePacketBuffer {
-            buf: [0; 512],
+            buf: [0; 4096],
             pos: 0,
         }
     }
@@ -40,7 +40,7 @@ impl BytePacketBuffer {
 
     // A method for reading a single byte, and moving one step forward
     fn read(&mut self) -> Result<u8, io::Error> {
-        if self.pos >= 512 {
+        if self.pos >= 4096 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "End of buffer"));
         }
         let res = self.buf[self.pos];
@@ -52,14 +52,14 @@ impl BytePacketBuffer {
     // the internal position
 
     fn get(&mut self, pos: usize) -> Result<u8, io::Error> {
-        if pos >= 512 {
+        if pos >= 4096 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "End of buffer"));
         }
         Ok(self.buf[pos])
     }
 
     fn get_range(&mut self, start: usize, len: usize) -> Result<&[u8], io::Error> {
-        if start + len >= 512 {
+        if start + len >= 4096 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "End of buffer"));
         }
         Ok(&self.buf[start..start + len as usize])
@@ -158,7 +158,7 @@ impl BytePacketBuffer {
     }
 
     fn write(&mut self, val: u8) -> Result<(), io::Error> {
-        if self.pos >= 512 {
+        if self.pos >= 4096 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "End of buffer"));
         }
         self.buf[self.pos] = val;
@@ -754,7 +754,7 @@ fn parse() {
 pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
     // Bind UDP socket on port 2053
     //let socket = UdpSocket::bind(("127.0.0.53", 53)).unwrap();
-    let socket = UdpSocket::bind(("0.0.0.0", 53)).unwrap();
+    let socket = UdpSocket::bind(("0.0.0.0", 2053)).unwrap();
 
     // Handle queries sequentially in a loop
     loop {
@@ -800,7 +800,6 @@ pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
         println!("Received query: {:?}", question);
 
         if question.name == "seed.justinmoon.com" {
-
             // Lookup nodes in db and assemble response
             let nodes = tdb.lock().unwrap().fetch_online_nodes(10);
 
@@ -825,14 +824,9 @@ pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
                 println!("lookup succeeded");
                 packet.header.rescode = result.header.rescode;
 
-                let mut i = 0;
                 for rec in result.answers {
                     println!("Answer: {:?}", rec);
                     packet.answers.push(rec);
-                    i += 1;
-                    if i > 5 {
-                        break;
-                    }
                 }
 
                 for rec in result.authorities {
@@ -849,7 +843,6 @@ pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
                 println!("lookup failed");
                 packet.header.rescode = ResultCode::SERVFAIL;
             }
-
         }
 
         // Encode and send our response
@@ -878,6 +871,5 @@ pub fn serve(tdb: Arc<Mutex<db::NodeDb>>) {
                 continue;
             }
         }
-
     }
 }
